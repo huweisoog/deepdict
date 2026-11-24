@@ -639,22 +639,16 @@ def set_autostart(enabled: bool, app_name: str = "DeepDict") -> bool:
 # ---------------------------------------------------------------- macOS .app 应用包
 
 def build_icns_bytes() -> bytes:
-    """使用 PyQt5 离屏渲染生成多尺寸 macOS .icns 图标字节。"""
+    """使用 PyQt5 离屏渲染生成多尺寸 macOS .icns 图标字节（遵循 Apple HIG 留白比例）。"""
     import struct
 
     if "QT_QPA_PLATFORM" not in os.environ:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-    from PyQt5.QtCore import QBuffer, QIODevice, QRectF, Qt
-    from PyQt5.QtGui import (
-        QColor,
-        QFont,
-        QGuiApplication,
-        QImage,
-        QLinearGradient,
-        QPainter,
-        QPainterPath,
-    )
+    from PyQt5.QtCore import QBuffer, QIODevice
+    from PyQt5.QtGui import QGuiApplication
+
+    from .ui import render_macos_icon_image
 
     app = QGuiApplication.instance()
     created_app = None
@@ -662,29 +656,7 @@ def build_icns_bytes() -> bytes:
         created_app = QGuiApplication(["deepdict-icon"])
 
     def _render_png(size: int) -> bytes:
-        img = QImage(size, size, QImage.Format_ARGB32_Premultiplied)
-        img.fill(Qt.transparent)
-        painter = QPainter(img)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.TextAntialiasing)
-        margin = size * 0.095
-        box = size - 2 * margin
-        radius = box * 0.225
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(margin, margin, box, box), radius, radius)
-        gradient = QLinearGradient(margin, margin, margin + box, margin + box)
-        gradient.setColorAt(0.0, QColor("#6b86ff"))
-        gradient.setColorAt(1.0, QColor("#3a54d6"))
-        painter.fillPath(path, gradient)
-        painter.setPen(QColor(255, 255, 255, 45))
-        painter.drawPath(path)
-        painter.setPen(QColor(255, 255, 255, 245))
-        font = QFont("PingFang SC")
-        font.setPixelSize(max(8, int(box * 0.54)))
-        font.setWeight(QFont.DemiBold)
-        painter.setFont(font)
-        painter.drawText(QRectF(margin, margin - box * 0.02, box, box), Qt.AlignCenter, "译")
-        painter.end()
+        img = render_macos_icon_image(size)
         buf = QBuffer()
         buf.open(QIODevice.WriteOnly)
         if not img.save(buf, "PNG"):

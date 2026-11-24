@@ -12,12 +12,13 @@ if sys.platform == "win32":
 else:
     wintypes = None  # type: ignore[assignment]
 
-from PyQt5.QtCore import QPoint, QSize, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QPoint, QRectF, QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import (
     QColor,
     QFont,
     QGuiApplication,
     QIcon,
+    QImage,
     QKeySequence,
     QLinearGradient,
     QPainter,
@@ -123,6 +124,52 @@ QLabel#hint {{ color: {MUTED}; font-size: 11px; }}
 """
 
 
+def render_macos_icon_image(size: int) -> QImage:
+    """按 Apple macOS HIG 图标网格（1024 画布内 824 主体、100px 留白、22.5% 圆角）渲染高分图标。"""
+    img = QImage(size, size, QImage.Format_ARGB32_Premultiplied)
+    img.fill(Qt.transparent)
+    painter = QPainter(img)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.TextAntialiasing)
+
+    # Apple HIG 标准留白：100 / 1024 ≈ 9.77%，主体 824 / 1024 ≈ 80.47%
+    margin = size * (100.0 / 1024.0)
+    box = size - 2.0 * margin
+    radius = box * 0.225
+
+    # 柔和底部投影，与 macOS 系统图标视觉对齐
+    if size >= 32:
+        for spread, dy, alpha in ((0.012, 0.014, 22), (0.004, 0.008, 34)):
+            shadow = QPainterPath()
+            s_px = size * spread
+            dy_px = size * dy
+            shadow.addRoundedRect(
+                QRectF(margin - s_px, margin + dy_px - s_px, box + 2 * s_px, box + 2 * s_px),
+                radius + s_px,
+                radius + s_px,
+            )
+            painter.fillPath(shadow, QColor(15, 23, 42, alpha))
+
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(margin, margin, box, box), radius, radius)
+    gradient = QLinearGradient(margin, margin, margin + box, margin + box)
+    gradient.setColorAt(0.0, QColor("#6b86ff"))
+    gradient.setColorAt(1.0, QColor("#3a54d6"))
+    painter.fillPath(path, gradient)
+
+    painter.setPen(QColor(255, 255, 255, 45))
+    painter.drawPath(path)
+
+    painter.setPen(QColor(255, 255, 255, 245))
+    font = QFont("PingFang SC" if plat.IS_MACOS else "Microsoft YaHei UI")
+    font.setPixelSize(max(8, int(box * 0.54)))
+    font.setWeight(QFont.DemiBold)
+    painter.setFont(font)
+    painter.drawText(QRectF(margin, margin - box * 0.02, box, box), Qt.AlignCenter, "译")
+    painter.end()
+    return img
+
+
 def app_icon(size: int = 64) -> QIcon:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
@@ -135,13 +182,23 @@ def app_icon(size: int = 64) -> QIcon:
     gradient.setColorAt(1.0, QColor("#3a54d6"))
     painter.fillPath(path, gradient)
     painter.setPen(QColor(255, 255, 255, 235))
-    font = QFont("Microsoft YaHei UI")
+    font = QFont("PingFang SC" if plat.IS_MACOS else "Microsoft YaHei UI")
     font.setPixelSize(int(size * 0.52))
     font.setBold(True)
     painter.setFont(font)
     painter.drawText(pixmap.rect(), Qt.AlignCenter, "译")
     painter.end()
     return QIcon(pixmap)
+
+
+def dock_icon() -> QIcon:
+    """应用主图标：macOS 使用带标准留白的多尺寸 Retina 图标，与系统程序坞图标等大。"""
+    if not plat.IS_MACOS:
+        return app_icon()
+    icon = QIcon()
+    for sz in (64, 128, 256, 512):
+        icon.addPixmap(QPixmap.fromImage(render_macos_icon_image(sz)))
+    return icon
 
 
 class Bubble(QWidget):

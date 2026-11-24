@@ -305,7 +305,7 @@ class DeepDictApp(QObject):
         self.status_window = StatusWindow(self)
         self.status_window.setWindowTitle("DeepDict")
         self.status_window.setObjectName("statusWindow")
-        self.status_window.setWindowIcon(ui.app_icon())
+        self.status_window.setWindowIcon(ui.dock_icon())
         self.status_window.setStyleSheet(ui.STYLE_SHEET + "QWidget#statusWindow { background: #f8fafc; }")
         self.status_window.setMinimumWidth(420)
         layout = QVBoxLayout(self.status_window)
@@ -909,7 +909,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_TITLE)
-    app.setWindowIcon(ui.app_icon())
+    app.setWindowIcon(ui.dock_icon())
     app.setFont(ui.default_font())
 
     mutex = plat.acquire_single_instance("DeepDict.SingleInstance.v1")
