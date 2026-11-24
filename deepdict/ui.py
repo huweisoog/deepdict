@@ -332,6 +332,7 @@ class PopupWindow(QWidget):
         outer.setContentsMargins(14, 12, 14, 16)
         card = QFrame(self)
         card.setObjectName("card")
+        self._card = card
         outer.addWidget(card)
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(28)
@@ -346,6 +347,8 @@ class PopupWindow(QWidget):
         self.header_bar = QFrame(card)
         self.header_bar.setObjectName("headerBar")
         self.header_bar.setCursor(Qt.OpenHandCursor)
+        self.header_bar.setFixedHeight(40)
+        self.header_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         header = QHBoxLayout(self.header_bar)
         header.setContentsMargins(14, 9, 10, 9)
         header.setSpacing(7)
@@ -444,10 +447,10 @@ class PopupWindow(QWidget):
         self._resize_timer.timeout.connect(self._fit_height)
 
         self.setFixedWidth(int(cfg.get("popup_width", 470)))
-        self._font_size = 13
+        self._font_size = 14
 
     # ------------------------------------------------------------------ 生命周期
-    def begin(self, text: str, source: str, title: str, font_size: int = 13) -> None:
+    def begin(self, text: str, source: str, title: str, font_size: int = 14) -> None:
         self._answer = ""
         self._turns = []
         self._active_question = None
@@ -464,7 +467,7 @@ class PopupWindow(QWidget):
         self.followup_edit.clear()
         self.followup_btn.setEnabled(False)
         self._render("<p style='color:#64748b'>正在请求 DeepSeek…</p>")
-        self._fit_height()
+        self._fit_height(force=True)
 
     def begin_followup(self, question: str) -> None:
         if self._answer or self._active_question is not None:
@@ -523,7 +526,7 @@ class PopupWindow(QWidget):
     def show_near(self, x: int, y: int) -> None:
         self._anchor = (x, y)
         self._user_moved = False
-        self.adjustSize()
+        self._fit_height(force=True)
         self._place()
         self.show()
         self.raise_()
@@ -603,18 +606,28 @@ class PopupWindow(QWidget):
             return
         self._render()
 
-    def _fit_height(self) -> None:
+    def _fit_height(self, force: bool = False) -> None:
         document = self.answer.document()
         viewport_width = self.answer.viewport().width()
         if not self.isVisible() or viewport_width < 200:
             # 还没显示时 viewport 宽度不可信，按窗口宽度推算最终可用宽度
-            viewport_width = max(200, self.width() - 46)
+            viewport_width = max(200, self.width() - 56)
         document.setTextWidth(viewport_width)
         doc_height = int(document.documentLayout().documentSize().height())
-        view_height = max(64, min(doc_height + 12, 420))
-        if abs(self.answer.height() - view_height) > 6:
+        view_height = max(64, min(doc_height + 14, 420))
+        if force or abs(self.answer.height() - view_height) > 6:
             self.answer.setFixedHeight(view_height)
-            self.adjustSize()
+            self.answer.updateGeometry()
+            self._card.updateGeometry()
+            if self._card.layout() is not None:
+                self._card.layout().invalidate()
+                self._card.layout().activate()
+            if self.layout() is not None:
+                self.layout().invalidate()
+                self.layout().activate()
+            target_h = self.layout().sizeHint().height() if self.layout() is not None else self.sizeHint().height()
+            if target_h > 0:
+                self.setFixedHeight(target_h)
             if self.isVisible():
                 self._place()
 

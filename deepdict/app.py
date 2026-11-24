@@ -776,6 +776,10 @@ def main(argv: list[str] | None = None) -> int:
     plat.enable_dpi_awareness()
     sys.excepthook = _log_exception
     threading.excepthook = lambda args: _log_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    if hasattr(Qt, "HighDpiScaleFactorRoundingPolicy"):
+        QApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
