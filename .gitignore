@@ -1,0 +1,41 @@
+# Virtual environments & Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Build & packaging outputs
+build/
+build-*/
+dist/
+dist-*/
+*.spec
+
+# Secrets, API keys & local user configs (NEVER commit!)
+.env
+.env.*
+*.env
+.user-config/
+.testcfg/
+deepdict-v2-*/
+config.json
+
+# Local logs, caches & debug artifacts
+*.log
+.shots/
+comtypes_cache/
+@AutomationLog.txt
+DeepDict-start.cmd
+mouse_diagnostic.pyw
+tools/e2e_shot.ps1
+
+# Internal workspace handoff notes
+HANDOFF.md
+AGENTS.md
+
+# OS junk
+.DS_Store
+Thumbs.db
