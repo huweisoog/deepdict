@@ -162,9 +162,14 @@ def _wait_clipboard_settled(initial_seq: int, wait_timeout: float = 0.9, settle_
     return changed_at > 0.0
 
 
-def capture_by_copy(limit: int = 4000, restore: bool = True) -> tuple[str, bool]:
+def capture_by_copy(limit: int = 4000, restore: bool = True, source_pid: int = 0) -> tuple[str, bool]:
     """模拟复制快捷键（Windows Ctrl+C / macOS Cmd+C）读选区。返回 (文本, 是否动过剪贴板)。"""
     hwnd = plat.foreground_window()
+    if plat.IS_MACOS and source_pid and not plat.is_own_pid(source_pid):
+        if not hwnd or plat.is_own_pid(plat.window_pid(hwnd)):
+            if plat.activate_app_pid(source_pid):
+                time.sleep(0.08)
+                hwnd = plat.foreground_window()
     if not hwnd:
         return "", False
     if plat.is_own_pid(plat.window_pid(hwnd)):
@@ -205,17 +210,22 @@ def capture_by_copy(limit: int = 4000, restore: bool = True) -> tuple[str, bool]
     return text, True
 
 
-def capture_selection(limit: int = 4000, restore_clipboard: bool = True) -> Selection:
+def capture_selection(limit: int = 4000, restore_clipboard: bool = True, source_pid: int = 0) -> Selection:
     hwnd = plat.foreground_window()
-    title = plat.window_title(hwnd)
-    if not should_skip_uia(hwnd):
+    effective_pid = source_pid if (plat.IS_MACOS and source_pid and not plat.is_own_pid(source_pid)) else hwnd
+    title = plat.window_title(effective_pid)
+    if plat.IS_MACOS:
+        ax_text = clean_text(plat.read_selection_ax(effective_pid if effective_pid else 0), limit)
+        if ax_text:
+            return Selection(text=ax_text, source="划词", hwnd=effective_pid, title=title)
+    elif not should_skip_uia(hwnd):
         text = read_selection_uia(limit)
         if text:
             return Selection(text=text, source="UIA", hwnd=hwnd, title=title)
-    text, _ = capture_by_copy(limit, restore_clipboard)
+    text, _ = capture_by_copy(limit, restore_clipboard, source_pid=source_pid)
     if text:
-        return Selection(text=text, source="剪贴板", hwnd=hwnd, title=title)
-    return Selection(text="", source="", hwnd=hwnd, title=title)
+        return Selection(text=text, source="剪贴板", hwnd=effective_pid, title=title)
+    return Selection(text="", source="", hwnd=effective_pid, title=title)
 
 
 def probe_uia_available() -> bool:

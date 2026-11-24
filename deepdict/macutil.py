@@ -48,28 +48,59 @@ def enable_dpi_awareness() -> None:
     """macOS Retina 由 Qt 原生处理。"""
 
 
+def frontmost_app_pid() -> int:
+    try:
+        from AppKit import NSWorkspace  # type: ignore[import-not-found]
+
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        if app is not None:
+            return int(app.processIdentifier())
+    except Exception:
+        pass
+    return 0
+
+
+def activate_app_pid(pid: int) -> bool:
+    if not pid or pid == os.getpid():
+        return False
+    try:
+        from AppKit import (  # type: ignore[import-not-found]
+            NSApplicationActivateIgnoringOtherApps,
+            NSRunningApplication,
+        )
+
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(int(pid))
+        if app is not None:
+            return bool(app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
+    except Exception:
+        pass
+    return False
+
+
 def foreground_window() -> int:
-    return 1
+    return frontmost_app_pid()
 
 
 def window_pid(hwnd: int) -> int:
-    return 0
+    return int(hwnd) if hwnd else 0
 
 
 def window_title(hwnd: int) -> str:
     try:
-        out = subprocess.check_output(
-            [
-                "osascript",
-                "-e",
-                'tell application "System Events" to get name of first application process whose frontmost is true',
-            ],
-            stderr=subprocess.DEVNULL,
-            timeout=0.4,
+        from AppKit import NSRunningApplication, NSWorkspace  # type: ignore[import-not-found]
+
+        app = (
+            NSRunningApplication.runningApplicationWithProcessIdentifier_(int(hwnd))
+            if hwnd
+            else NSWorkspace.sharedWorkspace().frontmostApplication()
         )
-        return out.decode("utf-8", errors="ignore").strip()
+        if app is not None:
+            name = app.localizedName()
+            if name:
+                return str(name)
     except Exception:
-        return ""
+        pass
+    return ""
 
 
 def window_class(hwnd: int) -> str:
@@ -98,8 +129,90 @@ def is_own_pid(pid: int) -> bool:
     return pid != 0 and pid == os.getpid()
 
 
+def is_accessibility_trusted(prompt: bool = False) -> bool:
+    try:
+        import ApplicationServices  # type: ignore[import-not-found]
+
+        if prompt and hasattr(ApplicationServices, "AXIsProcessTrustedWithOptions"):
+            key = getattr(ApplicationServices, "kAXTrustedCheckOptionPrompt", "AXTrustedCheckOptionPrompt")
+            return bool(ApplicationServices.AXIsProcessTrustedWithOptions({key: True}))
+        return bool(ApplicationServices.AXIsProcessTrusted())
+    except Exception:
+        return False
+
+
+def open_accessibility_settings() -> bool:
+    is_accessibility_trusted(prompt=True)
+    try:
+        subprocess.Popen(
+            ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def read_selection_ax(pid: int = 0) -> str:
+    """尝试通过 macOS Accessibility API 直接读取当前选中文本（不触碰剪贴板）。"""
+    try:
+        import ApplicationServices  # type: ignore[import-not-found]
+
+        targets = []
+        if pid and pid != os.getpid():
+            targets.append(ApplicationServices.AXUIElementCreateApplication(int(pid)))
+        targets.append(ApplicationServices.AXUIElementCreateSystemWide())
+
+        for root in targets:
+            err, focused = ApplicationServices.AXUIElementCopyAttributeValue(
+                root, "AXFocusedUIElement", None
+            )
+            if err != 0 or focused is None:
+                continue
+            err2, selected = ApplicationServices.AXUIElementCopyAttributeValue(
+                focused, "AXSelectedText", None
+            )
+            if err2 == 0 and isinstance(selected, str) and selected.strip():
+                return selected
+    except Exception:
+        pass
+    return ""
+
+
+def _configure_cocoa_window(hwnd: int, nonactivating: bool) -> bool:
+    """配置 macOS 悬浮窗口：失焦不自动隐藏、跨桌面/全屏悬浮；气泡模式启用 NonactivatingPanel 防止抢占焦点。"""
+    if not hwnd:
+        return False
+    try:
+        import AppKit  # type: ignore[import-not-found]
+        import objc  # type: ignore[import-not-found]
+
+        ns_view = objc.objc_object(c_void_p=int(hwnd))
+        ns_win = ns_view.window() if ns_view is not None else None
+        if ns_win is None:
+            return False
+        if nonactivating and isinstance(ns_win, AppKit.NSPanel):
+            ns_win.setStyleMask_(ns_win.styleMask() | AppKit.NSWindowStyleMaskNonactivatingPanel)
+            ns_win.setBecomesKeyOnlyIfNeeded_(True)
+        ns_win.setHidesOnDeactivate_(False)
+        ns_win.setLevel_(AppKit.NSFloatingWindowLevel)
+        behavior = (
+            AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
+            | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary
+        )
+        ns_win.setCollectionBehavior_(behavior)
+        return True
+    except Exception:
+        return False
+
+
 def set_window_noactivate(hwnd: int) -> bool:
-    return False
+    return _configure_cocoa_window(hwnd, nonactivating=True)
+
+
+def configure_popup_window(hwnd: int) -> bool:
+    return _configure_cocoa_window(hwnd, nonactivating=False)
 
 
 def process_integrity_level() -> str:

@@ -79,6 +79,24 @@ def set_window_noactivate(hwnd: int) -> bool:
     return _backend.set_window_noactivate(hwnd)
 
 
+def configure_popup_window(hwnd: int) -> bool:
+    if IS_MACOS and hasattr(_backend, "configure_popup_window"):
+        return _backend.configure_popup_window(hwnd)
+    return False
+
+
+def activate_app_pid(pid: int) -> bool:
+    if IS_MACOS and hasattr(_backend, "activate_app_pid"):
+        return _backend.activate_app_pid(pid)
+    return False
+
+
+def read_selection_ax(pid: int = 0) -> str:
+    if IS_MACOS and hasattr(_backend, "read_selection_ax"):
+        return _backend.read_selection_ax(pid)
+    return ""
+
+
 def process_integrity_level() -> str:
     return _backend.process_integrity_level()
 

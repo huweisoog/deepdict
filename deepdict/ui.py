@@ -298,6 +298,8 @@ class Bubble(QWidget):
         if plat.IS_WINDOWS:
             plat.set_window_noactivate(int(self.winId()))
         self.show()
+        if plat.IS_MACOS:
+            plat.set_window_noactivate(int(self.winId()))
         self.raise_()
         self._timer.start(duration_ms)
 
@@ -529,6 +531,8 @@ class PopupWindow(QWidget):
         self._fit_height(force=True)
         self._place()
         self.show()
+        if plat.IS_MACOS:
+            plat.configure_popup_window(int(self.winId()))
         self.raise_()
 
     def _place(self) -> None:

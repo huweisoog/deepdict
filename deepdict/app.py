@@ -13,7 +13,7 @@ if sys.platform == "win32":
 else:
     wintypes = None  # type: ignore[assignment]
 
-from PyQt5.QtCore import QAbstractNativeEventFilter, QObject, QPoint, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import QAbstractNativeEventFilter, QEvent, QObject, QPoint, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (
     QAction,
@@ -139,12 +139,44 @@ class HotkeyFilter(QAbstractNativeEventFilter):
         return False, 0
 
 
+class _AppLifecycleFilter(QObject):
+    """处理 macOS 生命周期事件：程序坞右键 Quit / Cmd+Q 真正退出；点程序坞图标恢复状态窗。"""
+
+    def __init__(self, controller) -> None:
+        super().__init__(controller)
+        self._controller = controller
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        etype = event.type()
+        if etype == QEvent.Quit:
+            if not self._controller._quitting:
+                self._controller.quit()
+        elif etype == QEvent.ApplicationActivate:
+            c = self._controller
+            if (
+                not c._quitting
+                and hasattr(c, "status_window")
+                and not c.status_window.isVisible()
+                and not c.popup.isVisible()
+                and not c.bubble.isVisible()
+                and not c._settings_open
+                and not c._input_open
+            ):
+                c.show_status()
+        return False
+
+
 class StatusWindow(QWidget):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
 
     def closeEvent(self, event):  # noqa: N802
+        if plat.IS_MACOS and not self.controller._quitting:
+            # macOS 习惯：点红叉仅隐藏到后台，不退出应用；菜单栏或程序坞右键 Quit 才是退出
+            event.ignore()
+            self.hide()
+            return
         event.accept()
         self.controller.quit()
 
@@ -154,6 +186,9 @@ class DeepDictApp(QObject):
         super().__init__()
         self.app = app
         self.demo = demo
+        self._quitting = False
+        self._last_source_pid = 0
+        self._prompted_accessibility = False
         self.cfg = cfgmod.load_config()
         self.bridge = Bridge()
         self._sel = 0      # 选区捕获请求序号
@@ -221,6 +256,8 @@ class DeepDictApp(QObject):
             )
             self._register_hotkeys()
             self._raw_mouse_registered = self._mac_monitor.start_mouse() if self._mac_monitor else False
+            self._lifecycle_filter = _AppLifecycleFilter(self)
+            self.app.installEventFilter(self._lifecycle_filter)
 
         self._build_status_window()
         if not demo:
@@ -279,26 +316,23 @@ class DeepDictApp(QObject):
         layout.addWidget(label)
         self.status_hotkeys = QLabel()
         layout.addWidget(self.status_hotkeys)
-        integrity = plat.process_integrity_level()
-        if not self._raw_mouse_registered:
-            mouse_text = (
-                "划词气泡：未启动（请检查 macOS 辅助功能权限）"
-                if plat.IS_MACOS
-                else "划词气泡：鼠标监听启动失败"
-            )
-        elif integrity in ("Low", "Untrusted"):
-            mouse_text = f"划词气泡：已启动（警告：当前进程权限为 {integrity}，后台划词会被系统拦截）"
-        elif integrity:
-            mouse_text = f"划词气泡：已启动（进程权限：{integrity}）"
-        else:
-            mouse_text = "划词气泡：已启动"
-        self.mouse_status = QLabel(mouse_text)
+        self.mouse_status = QLabel()
         layout.addWidget(self.mouse_status)
-        hint = QLabel("选中文字后点击蓝色「译 翻译」气泡（可拖动移位），或使用快捷键。")
+        hint_text = (
+            "选中文字后点击蓝色「译 翻译」气泡（可拖动移位），或使用快捷键。\n"
+            "点窗口红叉会隐藏到后台继续运行，右键程序坞图标或顶部菜单栏可退出。"
+            if plat.IS_MACOS
+            else "选中文字后点击蓝色「译 翻译」气泡（可拖动移位），或使用快捷键。"
+        )
+        hint = QLabel(hint_text)
         hint.setObjectName("hint")
         layout.addWidget(hint)
         row = QHBoxLayout()
-        for idx, (title, handler) in enumerate((("输入翻译", self.show_input), ("设置", self.open_settings), ("退出 DeepDict", self.quit))):
+        buttons = [("输入翻译", self.show_input), ("设置", self.open_settings)]
+        if plat.IS_MACOS and macutil is not None and not macutil.is_accessibility_trusted():
+            buttons.append(("授权辅助功能", self._request_accessibility))
+        buttons.append(("退出 DeepDict", self.quit))
+        for idx, (title, handler) in enumerate(buttons):
             button = QPushButton(title)
             if idx == 0:
                 button.setObjectName("primary")
@@ -307,8 +341,30 @@ class DeepDictApp(QObject):
         layout.addLayout(row)
         self._update_status()
 
+    def _request_accessibility(self) -> None:
+        if macutil is not None:
+            macutil.open_accessibility_settings()
+
     def _update_status(self) -> None:
         self.status_hotkeys.setText(f"划词：{self.cfg.get('hotkey')}    输入：{self.cfg.get('input_hotkey')}")
+        integrity = plat.process_integrity_level()
+        if plat.IS_MACOS:
+            trusted = macutil.is_accessibility_trusted() if macutil is not None else False
+            if not self._raw_mouse_registered:
+                mouse_text = "划词气泡：未启动（请在系统设置授予辅助功能 / 输入监控权限后重启）"
+            elif not trusted:
+                mouse_text = "划词气泡：已启动（未获「辅助功能」权限，点「授权辅助功能」后重启即可取词）"
+            else:
+                mouse_text = "划词气泡：已启动（辅助功能权限已就绪）"
+        elif not self._raw_mouse_registered:
+            mouse_text = "划词气泡：鼠标监听启动失败"
+        elif integrity in ("Low", "Untrusted"):
+            mouse_text = f"划词气泡：已启动（警告：当前进程权限为 {integrity}，后台划词会被系统拦截）"
+        elif integrity:
+            mouse_text = f"划词气泡：已启动（进程权限：{integrity}）"
+        else:
+            mouse_text = "划词气泡：已启动"
+        self.mouse_status.setText(mouse_text)
 
     def show_status(self) -> None:
         self._update_status()
@@ -402,12 +458,20 @@ class DeepDictApp(QObject):
             self.show_input()
 
     # ------------------------------------------------------------------ 取词
-    def translate_selection(self, purpose: str = "hotkey") -> None:
+    def translate_selection(self, purpose: str = "hotkey", source_pid: int = 0) -> None:
         self._sel += 1
         token = self._sel
-        threading.Thread(target=self._capture_worker, args=(token, purpose), daemon=True).start()
+        if plat.IS_MACOS and not source_pid:
+            cur = plat.foreground_window()
+            if cur and not plat.is_own_pid(cur):
+                source_pid = cur
+            else:
+                source_pid = self._last_source_pid
+        threading.Thread(
+            target=self._capture_worker, args=(token, purpose, source_pid), daemon=True
+        ).start()
 
-    def _capture_worker(self, token: int, purpose: str = "hotkey") -> None:
+    def _capture_worker(self, token: int, purpose: str = "hotkey", source_pid: int = 0) -> None:
         text = ""
         try:
             if plat.IS_WINDOWS:
@@ -418,6 +482,7 @@ class DeepDictApp(QObject):
                 sel = cap.capture_selection(
                     limit=int(self.cfg.get("max_selection_chars", 4000)),
                     restore_clipboard=bool(self.cfg.get("restore_clipboard", True)),
+                    source_pid=source_pid,
                 )
                 text = sel.text
                 self.bridge.selection_ready.emit(sel, purpose, token)
@@ -426,12 +491,27 @@ class DeepDictApp(QObject):
                     comtypes.CoUninitialize()
         except Exception:
             if not text:
-                self.bridge.selection_ready.emit(cap.Selection(), purpose, token)
+                self.bridge.selection_ready.emit(cap.Selection(text=""), purpose, token)
 
     def _on_selection_ready(self, sel, purpose: str, token: int) -> None:
         if token != self._sel:
             return
         if not sel.text:
+            if plat.IS_MACOS and macutil is not None and not macutil.is_accessibility_trusted():
+                box = QMessageBox(self.status_window)
+                box.setIcon(QMessageBox.Warning)
+                box.setWindowTitle("需要 macOS 辅助功能权限")
+                box.setText("未能读取选中文字：当前尚未授予 DeepDict「辅助功能」权限。")
+                box.setInformativeText(
+                    "点击「打开系统设置」后，系统会把对应进程加入「隐私与安全性 → 辅助功能」列表，"
+                    "勾选开启并重启 DeepDict 即可正常划词翻译。"
+                )
+                open_btn = box.addButton("打开系统设置", QMessageBox.AcceptRole)
+                box.addButton("稍后再说", QMessageBox.RejectRole)
+                box.exec_()
+                if box.clickedButton() == open_btn:
+                    macutil.open_accessibility_settings()
+                return
             self.tray.showMessage(
                 APP_TITLE,
                 "没有取到选中文字。请先在任意应用里选中文本；或使用「输入翻译」。",
@@ -440,6 +520,11 @@ class DeepDictApp(QObject):
             )
             if purpose == "hotkey":
                 self.show_input()
+            else:
+                pos = QCursor.pos()
+                self.popup.begin("（未检测到选中的文字）", "提示", "")
+                self.popup.fail("当前应用未返回选中内容，请确认已选中文字或先按 Cmd+C 后点菜单栏「翻译剪贴板」。")
+                self.popup.show_near(pos.x(), pos.y())
             return
         # 弹窗定位用 Qt 的逻辑坐标（已经过 DPI 换算），避免高缩放下偏移
         pos = QCursor.pos()
@@ -533,17 +618,27 @@ class DeepDictApp(QObject):
         if self._is_point_in_own_window(x, y):
             return
         hwnd = plat.window_from_point(x, y) if plat.IS_WINDOWS else 0
+        if plat.IS_MACOS:
+            src_pid = plat.foreground_window()
+            if src_pid and not plat.is_own_pid(src_pid):
+                self._last_source_pid = src_pid
         pos = QCursor.pos()
         if self.popup.isVisible() and self.popup.frameGeometry().contains(pos):
             return
         self._bubble_seq += 1
         token = self._bubble_seq
         # Show an actionable bubble immediately, even when the application
-        # does not expose its selection through UI Automation. A click can
-        # then use the existing explicit copy fallback if necessary.
+        # does not expose its selection through UI Automation / Accessibility.
+        # A click can then use the existing explicit copy fallback if necessary.
         self.bubble.show_for("", pos.x(), pos.y(), 6000)
         if plat.IS_WINDOWS and not cap.should_skip_uia(plat.root_window(hwnd) if hwnd else 0):
             threading.Thread(target=self._bubble_worker, args=(pos.x(), pos.y(), token, x, y), daemon=True).start()
+        elif plat.IS_MACOS:
+            threading.Thread(
+                target=self._bubble_worker_mac,
+                args=(pos.x(), pos.y(), token, self._last_source_pid),
+                daemon=True,
+            ).start()
 
     def _bubble_worker(self, x: int, y: int, token: int, physical_x: int, physical_y: int) -> None:
         try:
@@ -554,6 +649,14 @@ class DeepDictApp(QObject):
                 text = cap.read_selection_uia(limit=2000, point=(physical_x, physical_y))
             finally:
                 comtypes.CoUninitialize()
+            if text:
+                self.bridge.bubble_text.emit(text, x, y, token)
+        except Exception:
+            pass
+
+    def _bubble_worker_mac(self, x: int, y: int, token: int, source_pid: int) -> None:
+        try:
+            text = cap.clean_text(plat.read_selection_ax(source_pid), 2000)
             if text:
                 self.bridge.bubble_text.emit(text, x, y, token)
         except Exception:
@@ -570,7 +673,7 @@ class DeepDictApp(QObject):
     def _on_bubble_clicked(self, text: str) -> None:
         self._bubble_seq += 1
         if not text:
-            self.translate_selection(purpose="bubble")
+            self.translate_selection(purpose="bubble", source_pid=self._last_source_pid)
             return
         pos = self.bubble.pos()
         x = pos.x() + self.bubble.width() + 2
@@ -712,6 +815,9 @@ class DeepDictApp(QObject):
 
     # ------------------------------------------------------------------ 退出
     def quit(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
         try:
             if plat.IS_WINDOWS and w32 is not None:
                 if self._raw_mouse_registered:
