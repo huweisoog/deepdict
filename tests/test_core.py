@@ -90,6 +90,47 @@ class TextTests(unittest.TestCase):
         self.assertIsNone(macutil.parse_hotkey(""))
         self.assertIsNone(macutil.parse_hotkey("InvalidKeyName"))
 
+    def test_mac_parse_hotkey_quartz(self):
+        self.assertEqual(macutil.parse_hotkey_quartz("Cmd+Alt+Q"), ((1 << 20) | (1 << 19), 12))
+        self.assertEqual(macutil.parse_hotkey_quartz("Cmd+Alt+S"), ((1 << 20) | (1 << 19), 1))
+        self.assertEqual(macutil.parse_hotkey_quartz("Ctrl+Shift+Space"), ((1 << 18) | (1 << 17), 49))
+        self.assertEqual(macutil.parse_hotkey_quartz("F9"), (0, 101))
+        self.assertIsNone(macutil.parse_hotkey_quartz(""))
+        self.assertIsNone(macutil.parse_hotkey_quartz("InvalidKeyName"))
+
+    def test_mac_install_app_bundle(self):
+        import plistlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app_path = macutil.install_app_bundle(
+                python_executable="/path/with space/python",
+                app_dir=Path(tmp),
+                version="0.2.0",
+                icns_bytes=b"icns\x00\x00\x00\x08",
+            )
+            self.assertEqual(app_path, Path(tmp) / "DeepDict.app")
+            info_path = app_path / "Contents" / "Info.plist"
+            launcher_path = app_path / "Contents" / "MacOS" / "DeepDict"
+            icon_path = app_path / "Contents" / "Resources" / "AppIcon.icns"
+            self.assertTrue(info_path.is_file())
+            self.assertTrue(launcher_path.is_file())
+            self.assertTrue(icon_path.is_file())
+            with info_path.open("rb") as handle:
+                info = plistlib.load(handle)
+            self.assertEqual(info["CFBundleName"], "DeepDict")
+            self.assertEqual(info["CFBundleIconFile"], "AppIcon")
+            self.assertEqual(info["CFBundleShortVersionString"], "0.2.0")
+            launcher_text = launcher_path.read_text(encoding="utf-8")
+            self.assertIn("'/path/with space/python' -m deepdict", launcher_text)
+            if sys.platform != "win32":
+                self.assertTrue(os.access(launcher_path, os.X_OK))
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS only")
+    def test_mac_build_icns_bytes(self):
+        data = macutil.build_icns_bytes()
+        self.assertTrue(data.startswith(b"icns"))
+        self.assertGreater(len(data), 1024)
+
     @unittest.skipUnless(sys.platform == "win32", "Windows only")
     def test_win32_64bit_signatures_and_integrity(self):
         self.assertIsNotNone(win32util.user32.CallNextHookEx.argtypes)

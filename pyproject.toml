@@ -31,6 +31,7 @@ dependencies = [
     'comtypes>=1.4; sys_platform == "win32"',
     'uiautomation>=2.0; sys_platform == "win32"',
     'pynput>=1.7; sys_platform == "darwin"',
+    'pyobjc-framework-Quartz>=9.0; sys_platform == "darwin"',
 ]
 
 [project.urls]

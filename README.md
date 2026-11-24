@@ -21,7 +21,7 @@
 | 平台 | 取词与监听机制 | 默认热键 | 备注 |
 | --- | --- | --- | --- |
 | **Windows 10/11** | Raw Input 后台鼠标监听 + UI Automation / 安全 `Ctrl+C` + `RegisterHotKey` | `Ctrl+Alt+Q` / `Ctrl+Alt+S` | 已完成记事本、浏览器、Adobe Acrobat 实机验证 |
-| **macOS** | `pynput` 全局键鼠监听 + 安全 `Cmd+C` + `LaunchAgents` 开机自启 | `Cmd+Alt+Q` / `Cmd+Alt+S` | 首次使用需在「系统设置 → 隐私与安全性 → 辅助功能」授予终端/Python 权限 |
+| **macOS** | 原生 `Quartz CGEventTap` 全局键鼠监听 + 安全 `Cmd+C` + `DeepDict.app` + `LaunchAgents` 开机自启 | `Cmd+Alt+Q` / `Cmd+Alt+S` | 首次使用需在「系统设置 → 隐私与安全性 → 辅助功能」授予 DeepDict / 终端权限 |
 
 ---
 
@@ -45,19 +45,21 @@ pip install git+https://github.com/huweisoog/deepdict.git
 deepdict
 ```
 
-### 方式 2：一键脚本安装（自动建独立虚拟环境 + 配置命令）
+### 方式 2：一键脚本安装（自动建独立虚拟环境 + 配置命令 + 应用图标）
 
-**Windows（PowerShell）**：
+**Windows（PowerShell）**（自动创建桌面快捷方式）：
 
 ```powershell
 irm https://raw.githubusercontent.com/huweisoog/deepdict/main/scripts/install.ps1 | iex
 ```
 
-**macOS（Terminal）**：
+**macOS（Terminal）**（自动在「应用程序」中创建 `DeepDict.app` 图标，可从访达 / 启动台 / Spotlight 直接打开）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/huweisoog/deepdict/main/scripts/install.sh | bash
 ```
+
+> 使用 `pip` / `pipx` 安装的 macOS 用户，也可以运行 `deepdict --install-app` 自动生成 `DeepDict.app` 应用图标。
 
 ### 方式 3：从本地源码安装
 
@@ -79,11 +81,12 @@ bash ./scripts/install.sh .
 ### 常用命令
 
 ```bash
-deepdict              # 启动 DeepDict（首次运行自动弹出设置框填 API Key）
-deepdict --demo       # 演示模式（无需 API Key，直接体验翻译卡片与追问界面）
-deepdict --selftest   # 环境自检（检查依赖、剪贴板、热键与权限状态）
-deepdict --version    # 查看版本号
-deepdict --help       # 查看命令行帮助
+deepdict               # 启动 DeepDict（首次运行自动弹出设置框填 API Key）
+deepdict --demo        # 演示模式（无需 API Key，直接体验翻译卡片与追问界面）
+deepdict --selftest    # 环境自检（检查依赖、剪贴板、热键与权限状态）
+deepdict --install-app # macOS：在「应用程序」目录创建/更新 DeepDict.app 图标
+deepdict --version     # 查看版本号
+deepdict --help        # 查看命令行帮助
 ```
 
 ### 日常操作

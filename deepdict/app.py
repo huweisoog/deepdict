@@ -109,6 +109,7 @@ class Bridge(QObject):
     hotkey_triggered = pyqtSignal(int)               # hotkey_id
     mouse_release = pyqtSignal(int, int, int)        # x, y, kind
     dismiss_popup = pyqtSignal(int, int)             # x, y
+    mac_mouse = pyqtSignal(bool, int, int)           # down, x, y
 
 
 class HotkeyFilter(QAbstractNativeEventFilter):
@@ -200,6 +201,7 @@ class DeepDictApp(QObject):
         self.bridge.hotkey_triggered.connect(self._on_hotkey)
         self.bridge.mouse_release.connect(self._on_mouse_release)
         self.bridge.dismiss_popup.connect(self._on_dismiss_popup)
+        self.bridge.mac_mouse.connect(self._on_mac_mouse)
 
         if plat.IS_WINDOWS and w32 is not None:
             self._hotkey_filter = HotkeyFilter(self._on_hotkey, self._on_control, self._on_raw_mouse)
@@ -445,10 +447,13 @@ class DeepDictApp(QObject):
 
     # ------------------------------------------------------------------ 气泡
     def _on_mac_mouse_down(self, x: int, y: int) -> None:
-        self._mouse_transition(True, pos=(x, y))
+        self.bridge.mac_mouse.emit(True, x, y)
 
     def _on_mac_mouse_up(self, x: int, y: int) -> None:
-        self._mouse_transition(False, pos=(x, y))
+        self.bridge.mac_mouse.emit(False, x, y)
+
+    def _on_mac_mouse(self, down: bool, x: int, y: int) -> None:
+        self._mouse_transition(down, pos=(x, y))
 
     def _on_raw_mouse(self, flags: int) -> None:
         assert w32 is not None
@@ -748,6 +753,7 @@ def _print_help() -> None:
         "  -V, --version          显示版本号\n"
         "  --selftest             运行环境自检（不打开窗口）\n"
         "  --demo                 演示模式（不调用真实接口）\n"
+        "  --install-app          创建/更新 macOS 应用程序图标（DeepDict.app）\n"
         "  --config-dir=<路径>    指定配置文件目录\n"
     )
 
@@ -763,6 +769,14 @@ def main(argv: list[str] | None = None) -> int:
     for arg in argv:
         if arg.startswith("--config-dir="):
             os.environ["DEEPDICT_CONFIG_DIR"] = arg.split("=", 1)[1]
+    if "--install-app" in argv:
+        if not plat.IS_MACOS or macutil is None:
+            print("--install-app 仅用于 macOS。")
+            return 1
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        app_path = macutil.install_app_bundle(version=__version__)
+        print(f"已创建 macOS 应用图标：{app_path}")
+        return 0
     if "--selftest" in argv:
         from .selftest import run_selftest
 

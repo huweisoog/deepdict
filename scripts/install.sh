@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DeepDict macOS / Linux CLI Installer
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/<huweisoog>/deepdict/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/huweisoog/deepdict/main/scripts/install.sh | bash
 # Or install from a local clone:
 #   bash ./scripts/install.sh .
 
@@ -56,8 +56,22 @@ echo "==> Upgrading pip and installing DeepDict..."
 
 ln -sf "${VENV_DIR}/bin/deepdict" "${BIN_DIR}/deepdict"
 
+APP_BUNDLE_MSG=""
+if [ "$(uname -s)" = "Darwin" ] && [ "${DEEPDICT_NO_APP:-0}" != "1" ]; then
+  echo "==> Creating macOS application bundle (DeepDict.app)..."
+  if APP_OUT="$(QT_QPA_PLATFORM=offscreen "${VENV_DIR}/bin/python" -m deepdict --install-app 2>&1)"; then
+    APP_BUNDLE_MSG="$APP_OUT"
+    echo "    ${APP_OUT}"
+  else
+    echo "    (Skipped macOS app bundle: ${APP_OUT})"
+  fi
+fi
+
 echo ""
 echo "DeepDict installed successfully!"
+if [ -n "$APP_BUNDLE_MSG" ]; then
+  echo "  Open App   : Finder -> 应用程序 / Launchpad / Spotlight -> DeepDict"
+fi
 echo "  Run GUI    : deepdict"
 echo "  Demo mode  : deepdict --demo"
 echo "  Self check : deepdict --selftest"
@@ -74,5 +88,5 @@ esac
 if [ "$(uname -s)" = "Darwin" ]; then
   echo ""
   echo "macOS Tip: For global hotkeys and selection bubbles, grant Accessibility permission to"
-  echo "your Terminal / Python in: System Settings -> Privacy & Security -> Accessibility."
+  echo "DeepDict (or your Terminal / Python) in: System Settings -> Privacy & Security -> Accessibility."
 fi
